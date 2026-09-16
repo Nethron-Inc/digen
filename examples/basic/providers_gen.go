@@ -3,12 +3,12 @@
 package main
 
 import (
-	digen "bugdrill.ai/digen"
-	config "bugdrill.ai/digen/examples/basic/config"
-	greeting "bugdrill.ai/digen/examples/basic/greeting"
-	notify "bugdrill.ai/digen/examples/basic/notify"
-	store "bugdrill.ai/digen/examples/basic/store"
 	fmt "fmt"
+	digen "github.com/Nethron-Inc/digen"
+	config "github.com/Nethron-Inc/digen/examples/basic/config"
+	greeting "github.com/Nethron-Inc/digen/examples/basic/greeting"
+	notify "github.com/Nethron-Inc/digen/examples/basic/notify"
+	store "github.com/Nethron-Inc/digen/examples/basic/store"
 	slog "log/slog"
 	sync "sync"
 )

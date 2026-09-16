@@ -4,7 +4,7 @@ package store
 import (
 	"errors"
 
-	"bugdrill.ai/digen/examples/basic/config"
+	"github.com/Nethron-Inc/digen/examples/basic/config"
 )
 
 // Store is where the audit notifier writes.

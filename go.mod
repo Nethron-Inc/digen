@@ -1,4 +1,4 @@
-module bugdrill.ai/digen
+module github.com/Nethron-Inc/digen
 
 go 1.25.0
 

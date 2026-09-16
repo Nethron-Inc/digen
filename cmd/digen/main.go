@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"os"
 
-	"bugdrill.ai/digen/internal/generator"
+	"github.com/Nethron-Inc/digen/internal/generator"
 )
 
 func main() {

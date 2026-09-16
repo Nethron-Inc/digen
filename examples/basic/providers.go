@@ -3,10 +3,10 @@
 package main
 
 import (
-	"bugdrill.ai/digen"
-	"bugdrill.ai/digen/examples/basic/greeting"
-	"bugdrill.ai/digen/examples/basic/notify"
-	"bugdrill.ai/digen/examples/basic/store"
+	"github.com/Nethron-Inc/digen"
+	"github.com/Nethron-Inc/digen/examples/basic/greeting"
+	"github.com/Nethron-Inc/digen/examples/basic/notify"
+	"github.com/Nethron-Inc/digen/examples/basic/store"
 )
 
 // appContainer is the single source of truth for how the example is wired.

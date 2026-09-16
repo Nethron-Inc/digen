@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"bugdrill.ai/digen/examples/basic/greeting"
-	"bugdrill.ai/digen/examples/basic/store"
+	"github.com/Nethron-Inc/digen/examples/basic/greeting"
+	"github.com/Nethron-Inc/digen/examples/basic/store"
 )
 
 // Notifier is provided twice, so the container collects both into a Notifiers()

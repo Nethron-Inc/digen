@@ -11,21 +11,18 @@ standard library.
 ## Install
 
 ```bash
-go install bugdrill.ai/digen/cmd/digen@latest
+go install github.com/Nethron-Inc/digen/cmd/digen@latest
 ```
 
-`bugdrill.ai` is not a real host, so a consumer resolves the module through a replace
-directive:
+Then, in the service that declares a provider set:
 
-```
-require bugdrill.ai/digen v0.0.0
-
-replace bugdrill.ai/digen => ../digen
+```bash
+go get github.com/Nethron-Inc/digen
 ```
 
 Installing the command separately is deliberate: it keeps `golang.org/x/tools`, which the
-generator needs, out of your service's own build graph. Importing `bugdrill.ai/digen` for
-the markers costs you nothing.
+generator needs, out of your service's own build graph. Importing
+`github.com/Nethron-Inc/digen` for the markers costs you nothing.
 
 ## Declare a provider set
 
@@ -35,7 +32,7 @@ the markers costs you nothing.
 package main
 
 import (
-	"bugdrill.ai/digen"
+	"github.com/Nethron-Inc/digen"
 	"example.com/app/greeting"
 	"example.com/app/notify"
 	"example.com/app/store"

@@ -1,6 +1,6 @@
 // Command basic demonstrates a digen-generated container.
 //
-// Run `go run bugdrill.ai/digen/cmd/digen -pkg ./examples/basic` from the module
+// Run `go run github.com/Nethron-Inc/digen/cmd/digen -pkg ./examples/basic` from the module
 // root to regenerate providers_gen.go.
 package main
 
@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"os"
 
-	"bugdrill.ai/digen"
-	"bugdrill.ai/digen/examples/basic/config"
+	"github.com/Nethron-Inc/digen"
+	"github.com/Nethron-Inc/digen/examples/basic/config"
 )
 
 func main() {
