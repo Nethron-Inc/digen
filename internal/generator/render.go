@@ -35,6 +35,7 @@ func render(g *graph) ([]byte, error) {
 	r.renderProxies(&body)
 	r.renderContainer(&body)
 	r.renderAccessors(&body)
+	r.renderOverrides(&body)
 	r.renderRoles(&body)
 	r.renderGroups(&body)
 
@@ -449,6 +450,18 @@ func (r *renderer) callExpr(nd *node) string {
 // renderFallibleBuild emits the body of a fallible accessor: every fallible
 // dependency is resolved in declaration order into a local, returning the first
 // error unchanged, and the constructor is then called with those locals.
+// renderOverrides keeps the accessor of every provider an injected input
+// replaced, returning the input. Code written against the container, a test
+// resolving the stub it passed in included, reads the same either way.
+func (r *renderer) renderOverrides(out *bytes.Buffer) {
+	for _, o := range r.g.overrides {
+		fmt.Fprintf(out, "// %s returns the %s passed to %s, which replaces its provider.\n",
+			o.name, typeLabel(o.input.typ), r.g.containerCtor)
+		fmt.Fprintf(out, "func (c *%s) %s() %s {\n\treturn c.%s\n}\n\n",
+			r.g.containerType, o.name, r.typeString(o.input.typ), o.input.name)
+	}
+}
+
 func (r *renderer) renderFallibleBuild(out *bytes.Buffer, nd *node, field string) {
 	locals := map[*provider]string{}
 	groupLocals := map[string]string{}

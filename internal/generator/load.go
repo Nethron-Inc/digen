@@ -21,8 +21,9 @@ const (
 	// loggerType is the type that field must have.
 	loggerType = "*log/slog.Logger"
 
-	eagerMarker = "Eager"
-	asMarker    = "As"
+	eagerMarker   = "Eager"
+	asMarker      = "As"
+	includeMarker = "Include"
 
 	// generatedSuffix turns the file declaring a provider set into the file the
 	// container is written to: providers.go becomes providers_gen.go.
@@ -65,6 +66,7 @@ type set struct {
 	containerCtor string // "New" + containerType
 	outPath       string // the declaring file with _gen.go in place of .go
 	elems         []ast.Expr
+	obj           *types.Var // the declared variable, which digen.Include refers to
 }
 
 type loaded struct {
@@ -126,15 +128,20 @@ func load(dir, pkgPattern, tag, varFilter string) (*loaded, error) {
 
 	// From here the partially-loaded package is returned alongside any error,
 	// so the caller can report its type errors as context for the failure.
-	sets, markerPath, err := providerSets(pkg, varFilter)
+	sets, all, markerPath, err := providerSets(pkg, varFilter)
 	if err != nil {
 		return l, err
 	}
 	for _, s := range sets {
 		ls := &loadedSet{set: s}
 
-		ls.providers = make([]*provider, 0, len(s.elems))
-		for i, elem := range s.elems {
+		elems, err := expandIncludes(pkg, markerPath, all, s, nil)
+		if err != nil {
+			return l, err
+		}
+
+		ls.providers = make([]*provider, 0, len(elems))
+		for i, elem := range elems {
 			p, err := newProvider(pkg, markerPath, elem, i)
 			if err != nil {
 				return l, fmt.Errorf("%s: %w", s.varName, err)
@@ -156,9 +163,15 @@ func load(dir, pkgPattern, tag, varFilter string) (*loaded, error) {
 // providerSets finds every variable of type digen.ProviderSet in the package,
 // in source order, and returns the import path of the package declaring that
 // type so the markers can be recognised.
-func providerSets(pkg *packages.Package, varFilter string) ([]set, string, error) {
+//
+// The first result is the sets to generate, which -var narrows to one. The
+// second is every set in the package regardless of that filter, keyed by its
+// variable, because a generated set may digen.Include one that is not generated
+// in this run.
+func providerSets(pkg *packages.Package, varFilter string) ([]set, map[*types.Var]set, string, error) {
 	var (
 		sets       []set
+		all        = map[*types.Var]set{}
 		markerPath string
 		byFile     = map[string]string{}
 	)
@@ -183,29 +196,26 @@ func providerSets(pkg *packages.Package, varFilter string) ([]set, string, error
 					if path == "" {
 						continue
 					}
-					if varFilter != "" && name.Name != varFilter {
-						continue
-					}
 					markerPath = path
 
 					if name.IsExported() {
-						return nil, "", fmt.Errorf(
+						return nil, nil, "", fmt.Errorf(
 							"provider set %s must be unexported: the generated container type takes "+
 								"the exported spelling of its name, which would collide with the variable",
 							name.Name,
 						)
 					}
 					if j >= len(value.Values) {
-						return nil, "", fmt.Errorf("provider set %s has no value", name.Name)
+						return nil, nil, "", fmt.Errorf("provider set %s has no value", name.Name)
 					}
 					lit, ok := value.Values[j].(*ast.CompositeLit)
 					if !ok {
-						return nil, "", fmt.Errorf("provider set %s must be a composite literal", name.Name)
+						return nil, nil, "", fmt.Errorf("provider set %s must be a composite literal", name.Name)
 					}
 
 					srcFile := pkg.Fset.Position(name.Pos()).Filename
 					if other, dup := byFile[srcFile]; dup {
-						return nil, "", fmt.Errorf(
+						return nil, nil, "", fmt.Errorf(
 							"provider sets %s and %s are declared in the same file %s; "+
 								"the generated file name comes from the declaring file, so they must be split",
 							other, name.Name, filepath.Base(srcFile),
@@ -214,13 +224,18 @@ func providerSets(pkg *packages.Package, varFilter string) ([]set, string, error
 					byFile[srcFile] = name.Name
 
 					containerType := exportName(name.Name)
-					sets = append(sets, set{
+					found := set{
 						varName:       name.Name,
 						containerType: containerType,
 						containerCtor: "New" + containerType,
 						outPath:       strings.TrimSuffix(srcFile, ".go") + generatedSuffix,
 						elems:         lit.Elts,
-					})
+						obj:           obj,
+					}
+					all[obj] = found
+					if varFilter == "" || name.Name == varFilter {
+						sets = append(sets, found)
+					}
 				}
 			}
 		}
@@ -228,17 +243,79 @@ func providerSets(pkg *packages.Package, varFilter string) ([]set, string, error
 
 	if len(sets) == 0 {
 		if varFilter != "" {
-			return nil, "", fmt.Errorf(
+			return nil, nil, "", fmt.Errorf(
 				"no %s variable named %s found in %s (is the build tag set?)",
 				providerSetType, varFilter, pkg.PkgPath,
 			)
 		}
-		return nil, "", fmt.Errorf(
+		return nil, nil, "", fmt.Errorf(
 			"no digen.%s variable found in %s (is the build tag set?)",
 			providerSetType, pkg.PkgPath,
 		)
 	}
-	return sets, markerPath, nil
+	return sets, all, markerPath, nil
+}
+
+// expandIncludes returns the entries of s with every digen.Include(other)
+// replaced, in place, by the entries of other, recursively. Declaration order is
+// kept, so an included set's providers take the position of the Include call:
+// that position is what orders slice groups.
+//
+// An included set must be declared in the same package, since the generated
+// container calls its providers, and those are often unexported. stack holds the
+// sets being expanded, so a set that includes itself, directly or not, is an
+// error rather than endless recursion.
+func expandIncludes(
+	pkg *packages.Package,
+	markerPath string,
+	all map[*types.Var]set,
+	s set,
+	stack []string,
+) ([]ast.Expr, error) {
+	for _, name := range stack {
+		if name == s.varName {
+			return nil, fmt.Errorf(
+				"provider set %s includes itself: %s",
+				s.varName, strings.Join(append(stack, s.varName), " -> "),
+			)
+		}
+	}
+	stack = append(stack, s.varName)
+
+	out := make([]ast.Expr, 0, len(s.elems))
+	for _, elem := range s.elems {
+		call, ok := elem.(*ast.CallExpr)
+		if !ok || markerName(pkg, markerPath, call.Fun) != includeMarker {
+			out = append(out, elem)
+			continue
+		}
+
+		if len(call.Args) != 1 {
+			return nil, fmt.Errorf("%s: digen.%s takes exactly one provider set", s.varName, includeMarker)
+		}
+		ident, ok := call.Args[0].(*ast.Ident)
+		if !ok {
+			return nil, fmt.Errorf(
+				"%s: digen.%s takes a provider set variable of this package by name",
+				s.varName, includeMarker,
+			)
+		}
+		obj, _ := pkg.TypesInfo.Uses[ident].(*types.Var)
+		included, ok := all[obj]
+		if !ok {
+			return nil, fmt.Errorf(
+				"%s: digen.%s(%s) does not name a provider set declared in %s",
+				s.varName, includeMarker, ident.Name, pkg.PkgPath,
+			)
+		}
+
+		elems, err := expandIncludes(pkg, markerPath, all, included, stack)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, elems...)
+	}
+	return out, nil
 }
 
 // providerSetPkgPath returns the import path of the package declaring t when t
@@ -518,8 +595,9 @@ func unwrapMarkers(pkg *packages.Package, markerPath string, expr ast.Expr, orde
 
 		default:
 			return nil, false, nil, fmt.Errorf(
-				"provider set entry %d is a call to something other than digen.%s or digen.%s",
-				order, eagerMarker, asMarker,
+				"provider set entry %d is a call to something other than digen.%s or digen.%s "+
+					"(digen.%s may only appear directly in a provider set, not wrapped in another marker)",
+				order, eagerMarker, asMarker, includeMarker,
 			)
 		}
 	}

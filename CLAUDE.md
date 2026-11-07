@@ -30,7 +30,7 @@ Go with no runtime container and no reflection.
 **Two packages face outward, one does the work.**
 
 - `digen.go` (package `digen`) — the markers a consumer imports: `ProviderSet`, `Eager`,
-  `As`, `ContainerConfig`. All the marker functions are runtime no-ops; they exist so
+  `As`, `Include`, `ContainerConfig`. All the marker functions are runtime no-ops; they exist so
   intent is expressed in compiler-checked Go and read back from the AST by the generator.
   **This package must never import anything outside the standard library** — that is what
   lets a service depend on the markers without pulling `golang.org/x/tools` into its build
@@ -41,7 +41,9 @@ Go with no runtime container and no reflection.
 **The pipeline: `load.go` → `graph.go` → `render.go`, orchestrated by `generator.go`.**
 
 `load.go` loads the target package with `packages.Load` under the `-tag` build tag (default
-`digen`), finds every `ProviderSet` variable, peels `Eager`/`As` markers off each element
+`digen`), finds every `ProviderSet` variable, expands `digen.Include(otherSet)` in place
+(`expandIncludes`; same-package sets only, recursive, order kept — so `providerSets` returns
+every set, not just the `-var` one), peels `Eager`/`As` markers off each element
 (they nest in either order), and produces `[]*provider` — constructor, provided type,
 dependencies, fallible/eager/variadic flags, and declaration order.
 
@@ -58,9 +60,12 @@ Two derivations here are unusual and worth knowing:
   even when the callee is unresolved, so this works while bootstrapping, before the
   container exists.
 
-`graph.go` resolves each dependency to a binding (`bindDep`): an injected input wins
-outright, then an exact type match, then any provider whose result implements the
-dependency's interface. It then computes the derived properties that shape the output:
+`graph.go` first drops every provider whose result is exactly the type of an injected input
+(`applyOverrides`): the input replaces it, and its accessor is kept to return the input
+(`renderOverrides`). That is what makes `Include` + a stub argument a test container. An
+input replacing several providers, or one with `As` roles, is an error. Then each dependency
+is resolved to a binding (`bindDep`): an injected input wins outright, then an exact type
+match, then any provider whose result implements the dependency's interface. It then computes the derived properties that shape the output:
 
 - **Groups** — a type provided more than once, consumed as `[]T`, or named in `digen.As`
   gets a slice accessor in provider-set order. **Roles** — a `digen.As` type filled by

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Nethron-Inc/digen"
 	"github.com/Nethron-Inc/digen/examples/basic/config"
+	"github.com/Nethron-Inc/digen/examples/basic/greeting"
 )
 
 func main() {
@@ -40,4 +41,30 @@ func main() {
 	for _, n := range notifiers {
 		fmt.Println(n.Notify("world"))
 	}
+
+	// The test container has the same providers, but its Greeter is the one
+	// passed in, so the console notifier it builds greets with the stub.
+	tc, err := newTestContainer(cfg, stubGreeter{})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "building the test container:", err)
+		os.Exit(1)
+	}
+	testNotifiers, err := tc.Notifiers()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "resolving test notifiers:", err)
+		os.Exit(1)
+	}
+	fmt.Println(testNotifiers[0].Notify("world"))
 }
+
+// newTestContainer is the call site that gives NewTestContainer its signature:
+// the configuration, then the Greeter that replaces the real one. A test would
+// pass a mock here.
+func newTestContainer(cfg config.Config, greeter greeting.Greeter) (*TestContainer, error) {
+	return NewTestContainer(digen.ContainerConfig{}, cfg, greeter)
+}
+
+// stubGreeter stands in for a test double.
+type stubGreeter struct{}
+
+func (stubGreeter) Greet(name string) string { return "stub greets " + name }

@@ -13,33 +13,33 @@ import (
 	sync "sync"
 )
 
-// lazyGreeter defers construction of greeting.Greeter until first use.
-type lazyGreeter struct {
+// lazyAppContainerGreeter defers construction of greeting.Greeter until first use.
+type lazyAppContainerGreeter struct {
 	once  sync.Once
 	build func() greeting.Greeter
 	val   greeting.Greeter
 }
 
-func (p *lazyGreeter) resolve() greeting.Greeter {
+func (p *lazyAppContainerGreeter) resolve() greeting.Greeter {
 	p.once.Do(func() {
 		p.val = p.build()
 	})
 	return p.val
 }
 
-func (p *lazyGreeter) Greet(a0 string) string {
+func (p *lazyAppContainerGreeter) Greet(a0 string) string {
 	return p.resolve().Greet(a0)
 }
 
-// lazyConsoleNotifier defers construction of notify.Notifier until first use.
-type lazyConsoleNotifier struct {
+// lazyAppContainerConsoleNotifier defers construction of notify.Notifier until first use.
+type lazyAppContainerConsoleNotifier struct {
 	once  sync.Once
 	build func() notify.Notifier
 	val   notify.Notifier
 	as0   notify.Starter
 }
 
-func (p *lazyConsoleNotifier) resolve() notify.Notifier {
+func (p *lazyAppContainerConsoleNotifier) resolve() notify.Notifier {
 	p.once.Do(func() {
 		p.val = p.build()
 		v0, ok := p.val.(notify.Starter)
@@ -51,16 +51,16 @@ func (p *lazyConsoleNotifier) resolve() notify.Notifier {
 	return p.val
 }
 
-func (p *lazyConsoleNotifier) resolveAs0() notify.Starter {
+func (p *lazyAppContainerConsoleNotifier) resolveAs0() notify.Starter {
 	p.resolve()
 	return p.as0
 }
 
-func (p *lazyConsoleNotifier) Notify(a0 string) string {
+func (p *lazyAppContainerConsoleNotifier) Notify(a0 string) string {
 	return p.resolve().Notify(a0)
 }
 
-func (p *lazyConsoleNotifier) Start() {
+func (p *lazyAppContainerConsoleNotifier) Start() {
 	p.resolveAs0().Start()
 }
 
@@ -73,11 +73,11 @@ type AppContainer struct {
 	diCfg             digen.ContainerConfig
 	diLogger          *slog.Logger
 	cfg               config.Config
-	greeter           *lazyGreeter
+	greeter           *lazyAppContainerGreeter
 	storeOnce         sync.Once
 	storeVal          store.Store
 	storeErr          error
-	consoleNotifier   *lazyConsoleNotifier
+	consoleNotifier   *lazyAppContainerConsoleNotifier
 	auditNotifierOnce sync.Once
 	auditNotifierVal  notify.Notifier
 	auditNotifierErr  error
@@ -97,11 +97,11 @@ func NewAppContainer(diCfg digen.ContainerConfig, cfg config.Config) (*AppContai
 	}
 	c.diLogger = diLogger.With("component", "AppContainer")
 
-	c.greeter = &lazyGreeter{build: func() greeting.Greeter {
+	c.greeter = &lazyAppContainerGreeter{build: func() greeting.Greeter {
 		c.diLogger.Debug("Instantiating", "target.component", "Greeter")
 		return greeting.NewGreeter(c.cfg)
 	}}
-	c.consoleNotifier = &lazyConsoleNotifier{build: func() notify.Notifier {
+	c.consoleNotifier = &lazyAppContainerConsoleNotifier{build: func() notify.Notifier {
 		c.diLogger.Debug("Instantiating", "target.component", "ConsoleNotifier")
 		return notify.NewConsoleNotifier(c.Greeter())
 	}}

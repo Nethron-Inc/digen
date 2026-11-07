@@ -46,6 +46,24 @@ func Eager(fn any) any { return fn }
 // Eager and As nest in either order.
 func As(fn any, ifaces ...any) any { return fn }
 
+// Include adds every provider of another set declared in the same package, at
+// the position of the call, as if they had been written there. It is how one
+// wiring serves several containers: a test container includes the production
+// set and differs from it only in what its constructor is passed.
+//
+//	var testContainer = digen.ProviderSet{
+//		digen.Include(container),
+//	}
+//
+// A value passed to a container's constructor always wins over a provider of
+// the same type, so calling NewTestContainer with a stub of some interface
+// replaces that dependency for everything the test container builds, while the
+// production container, called without it, keeps the real one.
+//
+// Include takes the set variable by name and may only appear directly in a
+// set, not inside Eager or As. Includes nest; a cycle is a generation error.
+func Include(set ProviderSet) any { return set }
+
 // ContainerConfig configures a generated container itself, as opposed to the
 // components it builds.
 //

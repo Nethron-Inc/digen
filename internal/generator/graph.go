@@ -53,6 +53,16 @@ type graph struct {
 	// roles are digen.As types filled by exactly one provider, which additionally
 	// get a singular accessor.
 	roles []role
+	// overrides are providers an injected input replaced. They are not in the
+	// graph; their accessor survives and hands back the input instead.
+	overrides []override
+}
+
+// override is a provider dropped because the container is passed a value of
+// exactly the type it provides.
+type override struct {
+	name  string // the dropped provider's accessor name, kept for the input
+	input *input
 }
 
 // group is a type with a slice accessor collecting every provider of it.
@@ -92,8 +102,6 @@ func resolve(l *loaded, s *loadedSet) (*graph, error) {
 		containerType: s.containerType,
 		containerCtor: s.containerCtor,
 		prefixProxies: len(l.sets) > 1,
-		providers:     s.providers,
-		byProvider:    make(map[*provider]*node, len(s.providers)),
 		diConfig:      s.diConfig,
 		inputs:        s.inputs,
 	}
@@ -102,16 +110,24 @@ func resolve(l *loaded, s *loadedSet) (*graph, error) {
 		return nil, err
 	}
 
+	providers, overrides, err := applyOverrides(s.providers, s.inputs)
+	if err != nil {
+		return nil, err
+	}
+	g.providers = providers
+	g.overrides = overrides
+	g.byProvider = make(map[*provider]*node, len(providers))
+
 	grouped := map[string]*group{}
 
-	for _, p := range s.providers {
+	for _, p := range providers {
 		if p.variadic {
 			return nil, fmt.Errorf("provider %s is variadic, which digen cannot wire", p)
 		}
 
 		nd := &node{p: p, proxied: shouldProxy(p, g.modulePath)}
 		for _, dep := range p.deps {
-			b, err := bindDep(s.providers, s.inputs, p, dep)
+			b, err := bindDep(providers, s.inputs, p, dep)
 			if err != nil {
 				return nil, err
 			}
@@ -127,8 +143,8 @@ func resolve(l *loaded, s *loadedSet) (*graph, error) {
 
 	// Any type several providers satisfy gets a slice accessor too, even when
 	// nothing consumes it as a slice yet.
-	for _, t := range providedTypes(s.providers) {
-		if matches := candidates(s.providers, t, false); len(matches) > 1 {
+	for _, t := range providedTypes(providers) {
+		if matches := candidates(providers, t, false); len(matches) > 1 {
 			g.addGroup(grouped, t, matches)
 		}
 	}
@@ -136,12 +152,12 @@ func resolve(l *loaded, s *loadedSet) (*graph, error) {
 	// A type named in digen.As is a role the component was deliberately registered
 	// under, so it always gets a slice accessor however few providers fill it.
 	// Code written against the plural then survives a second one appearing.
-	for _, t := range taggedTypes(s.providers) {
-		g.addGroup(grouped, t, candidates(s.providers, t, false))
+	for _, t := range taggedTypes(providers) {
+		g.addGroup(grouped, t, candidates(providers, t, false))
 	}
 	sort.Slice(g.groups, func(i, j int) bool { return g.groups[i].name < g.groups[j].name })
 
-	g.addRoleAccessors(s.providers)
+	g.addRoleAccessors(providers)
 
 	if err := g.checkCycles(); err != nil {
 		return nil, err
@@ -149,6 +165,66 @@ func resolve(l *loaded, s *loadedSet) (*graph, error) {
 
 	g.computeFallibility()
 	return g, nil
+}
+
+// applyOverrides drops every provider whose result is exactly the type of an
+// injected input, and returns what is left along with what was dropped.
+//
+// bindDep already lets an input win over providers when a dependency is bound,
+// so without this the replaced provider would linger: never used by anything,
+// yet still rendered, with a field that collides with the input's own and an
+// accessor that builds the real component the caller meant to replace. That is
+// what makes a test container work: the same provider set, a constructor passed
+// a stub, and every consumer of that type wired to the stub.
+//
+// Only a single provider can be replaced. An input matching several providers
+// would silently empty a group, and one registered under digen.As roles would
+// either drop out of them or need the input to fill roles it was never declared
+// for, so both are rejected rather than guessed at.
+func applyOverrides(providers []*provider, inputs []input) ([]*provider, []override, error) {
+	var overrides []override
+	kept := make([]*provider, 0, len(providers))
+
+	for i := range inputs {
+		var replaced []*provider
+		for _, p := range providers {
+			if types.Identical(p.provides, inputs[i].typ) {
+				replaced = append(replaced, p)
+			}
+		}
+		switch {
+		case len(replaced) > 1:
+			names := make([]string, 0, len(replaced))
+			for _, p := range replaced {
+				names = append(names, p.String())
+			}
+			return nil, nil, fmt.Errorf(
+				"injected %s would replace %d providers (%s); an input can replace only one",
+				typeLabel(inputs[i].typ), len(replaced), strings.Join(names, ", "),
+			)
+		case len(replaced) == 1 && len(replaced[0].alsoAs) > 0:
+			return nil, nil, fmt.Errorf(
+				"injected %s would replace %s, which is registered with digen.As; "+
+					"an input cannot take over its roles",
+				typeLabel(inputs[i].typ), replaced[0],
+			)
+		case len(replaced) == 1:
+			overrides = append(overrides, override{name: replaced[0].name, input: &inputs[i]})
+		}
+	}
+
+	for _, p := range providers {
+		dropped := false
+		for _, o := range overrides {
+			if types.Identical(p.provides, o.input.typ) {
+				dropped = true
+			}
+		}
+		if !dropped {
+			kept = append(kept, p)
+		}
+	}
+	return kept, overrides, nil
 }
 
 // computeFallibility marks which accessors return an error.

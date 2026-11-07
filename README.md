@@ -98,6 +98,41 @@ instantiation trace rather than failing. Set one and every component logs as it 
 level=DEBUG msg=Instantiating component=AppContainer target.component=Greeter
 ```
 
+## One wiring, several containers
+
+A test wants the real wiring with a few collaborators swapped out. Writing a second set
+by hand duplicates every entry and drifts. Instead, include the first:
+
+```go
+// test_providers.go
+//go:build digen
+
+var testContainer = digen.ProviderSet{
+	digen.Include(appContainer),
+}
+```
+
+`digen.Include` adds every provider of another set from the same package, at the position
+of the call, as if they had been written there. The included set must be in the same
+package because the container calls its providers, and those are often unexported. Includes
+nest. A cycle doesn't get as far as digen: Go itself reports it as an initialization cycle.
+
+What makes the second container different is its call site. An injected value **replaces**
+the provider of exactly its type. That provider is dropped, everything depending on the type
+gets the value, and its accessor stays, now returning what was passed in:
+
+```go
+func newTestContainer(cfg config.Config, greeter greeting.Greeter) (*TestContainer, error) {
+	return NewTestContainer(digen.ContainerConfig{}, cfg, greeter)
+}
+```
+
+Here `tc.Greeter()` is the stub, and so is the greeter inside every notifier `tc` builds.
+`NewAppContainer` is unaffected, because it is never passed one. An input may replace only
+a single provider: replacing one of several providers of a type would silently empty a
+group, and replacing one registered with `digen.As` would leave its roles unfilled. Both are
+generation errors.
+
 ## What you get
 
 ```go
