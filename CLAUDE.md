@@ -21,6 +21,10 @@ exactly what a change does to the emitted code, then `just run-example` to confi
 result compiles and behaves. Any change to `internal/generator` should be accompanied by a
 regenerated `providers_gen.go` in the same commit.
 
+## CI
+
+`Jenkinsfile` (Jenkins job `components/digen`, configured in `../infra`): `go vet`, gofmt, then it regenerates `examples/basic` and fails if the committed `providers_gen.go` differs, and runs the example. Nothing is published; a tag is the release.
+
 ## Architecture
 
 digen is a build-time DI container generator: it reads a `digen.ProviderSet` variable out
